@@ -95,15 +95,24 @@ export async function semgrepAvailable(opts: { force?: boolean; timeoutMs?: numb
   if (out.error && (out.error.code === 'ENOENT' || /ENOENT|not found/i.test(out.error.message ?? ''))) {
     status = { installed: false, path: bin, detail: `semgrep not found on PATH (install: pip install semgrep, or brew install semgrep)` };
   } else if (out.error && out.error.killed) {
+    // A slow probe under load must not flip a known-good install to "absent": keep the last good status.
+    if (lastGood) {
+      status = { ...lastGood, detail: `${lastGood.detail} (version probe timed out; last known good)` };
+      statusCache = { at: Date.now() - STATUS_TTL_MS + 5_000, status }; // re-probe in 5 s
+      return status;
+    }
     status = { installed: false, path: bin, detail: 'semgrep --version timed out' };
   } else {
     const version = (out.stdout.trim().split(/\s+/).pop() ?? '').replace(/^v/, '') || undefined;
     if (version && /^\d+\.\d+/.test(version)) status = { installed: true, version, path: bin, detail: `semgrep ${version}` };
     else status = { installed: false, path: bin, detail: `unexpected semgrep --version output: ${(out.stdout || out.stderr).trim().slice(0, 120)}` };
   }
+  if (status.installed) lastGood = status;
   statusCache = { at: Date.now(), status };
   return status;
 }
+
+let lastGood: SemgrepStatus | undefined;
 
 function failure(summary: string, ms: number, extra: Partial<SemgrepResult> = {}): SemgrepResult {
   return { ran: false, findings: 0, ok: false, summary, results: [], errors: [], ms, ...extra };
