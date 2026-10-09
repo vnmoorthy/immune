@@ -27,7 +27,7 @@ describe('semgrep adapter', () => {
     expect(typeof s.installed).toBe('boolean');
     if (s.installed) expect(s.version).toMatch(/^\d+\.\d+/);
     else expect(s.detail).toBeDefined();
-  });
+  }, 30_000); // `semgrep --version` is a Python process start; slow on a loaded machine
 
   it('never throws: invalid YAML, empty rules, missing targets', async () => {
     expect((await runSemgrep('rules: [', ['/nonexistent.ts'])).ran).toBe(false);
