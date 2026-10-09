@@ -1,7 +1,7 @@
 # Submission — Cyberdefense Hackathon (tokens& × AWS Builder Loft, SF Tech Week, Oct 9 2026)
 
 **Project:** Immune — the agent security loop that turns every attack into an antibody.
-**Repo:** https://github.com/vnmoorthy/immune · **Site:** https://vnmoorthy.github.io/immune/ · **Demo video:** (link)
+**Repo:** https://github.com/vnmoorthy/immune · **Site:** https://vnmoorthy.github.io/immune/ · **Demo video:** https://github.com/vnmoorthy/immune/raw/main/docs/demo/immune-demo.mp4 · **Deck:** https://github.com/vnmoorthy/immune/blob/main/docs/deck/immune.pdf
 **Measured on the live run:** builtin gate blocks 36/36 hand-written variants; 180/180 evasive mutations breach a fresh gate; one synthesized antibody raises corpus catch rate 76.7% → 98.1% with 0 → 0 false positives over 32,589 ClickHouse traces; time to verified immunity 4–8 s; after that one antibody, all five other families' evasive variants are blocked citing the same ruling. 186 unit tests + 77 end-to-end checks.
 **Tracks:** Threat discovery · Autonomous remediation · Continuous defense (and attack intelligence via the ClickHouse corpus).
 
