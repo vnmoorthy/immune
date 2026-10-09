@@ -1,5 +1,6 @@
 'use client';
 
+import { useRef } from 'react';
 import Link from 'next/link';
 import clsx from 'clsx';
 import { useMetrics } from './metrics-context';
@@ -10,12 +11,6 @@ import { Readout, Sparkline } from '@/components/ui/misc';
 import { fmtInt, fmtMs, fmtPct, FAMILY_META, timeAgo, type Tone } from '@/lib/format';
 import { useNow } from '@/lib/use-poll';
 
-function ttiTone(ms: number | undefined): Tone {
-  if (ms === undefined) return 'neutral';
-  if (ms < 5000) return 'immune';
-  if (ms < 20000) return 'flag';
-  return 'breach';
-}
 
 export function TtiHero() {
   const { metrics } = useMetrics();
@@ -23,7 +18,9 @@ export function TtiHero() {
   const tti = metrics?.lastTimeToImmunityMs;
   const history = metrics?.ttiHistory ?? [];
   const last = history[history.length - 1];
-  const tone = ttiTone(tti);
+  // colour is semantic only: neutral white, green once immunity was verified while this page was open
+  const sessionStart = useRef(Date.now());
+  const tone: Tone = last && last.ts >= sessionStart.current ? 'immune' : 'neutral';
   const seconds = tti !== undefined ? tti / 1000 : undefined;
 
   return (
@@ -31,7 +28,7 @@ export function TtiHero() {
       <div className="flex items-end justify-between gap-6">
         <div className="min-w-0">
           <div className="flex items-baseline gap-2">
-            <span className={clsx('mono-num text-[72px] font-light leading-[0.9] tracking-[-0.02em]', tone === 'immune' && 'text-immune', tone === 'flag' && 'text-flag', tone === 'breach' && 'text-breach', tone === 'neutral' && 'text-fg-3')}>
+            <span className={clsx('mono-num text-[72px] font-light leading-[0.9] tracking-[-0.02em]', tone === 'immune' ? 'text-immune' : seconds !== undefined ? 'text-fg' : 'text-fg-3')}>
               {seconds !== undefined ? <NumberTicker value={seconds} format={(v) => v.toFixed(3)} /> : <span className="text-[56px]">—</span>}
             </span>
             <span className="mono-num text-[20px] font-light text-fg-3">s</span>
@@ -49,7 +46,7 @@ export function TtiHero() {
           </div>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
-          <Sparkline values={history.map((h) => h.ms)} width={160} height={36} stroke="#6b7075" accent={tone === 'neutral' ? '#6b7075' : tone === 'immune' ? '#3ecf8e' : tone === 'flag' ? '#d9a21b' : '#e5484d'} />
+          <Sparkline values={history.map((h) => h.ms)} width={160} height={36} stroke="#6b7075" accent={tone === 'immune' ? '#3ecf8e' : '#e8e9eb'} />
           <div className="font-mono text-[10.5px] text-fg-3">
             {history.length ? `${history.length} verified · median ${fmtMs(median(history.map((h) => h.ms)))}` : 'history'}
           </div>

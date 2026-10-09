@@ -99,7 +99,7 @@ export function Arena() {
           const p = pending[family];
           const lr = last[family];
           return (
-            <div key={family} className="flex min-w-0 flex-col gap-2 px-3 py-2.5">
+            <div key={family} className="flex min-w-0 flex-col gap-2 overflow-hidden px-3 py-2.5">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="text-[12.5px] font-medium text-fg">{meta.label}</div>
@@ -118,7 +118,7 @@ export function Arena() {
                   breached <span className={clsx((st?.breached ?? 0) > 0 ? 'text-breach' : 'text-fg-2')}>{fmtInt(st?.breached ?? 0)}</span>
                 </span>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex flex-wrap items-center gap-1">
                 <Button size="xs" mono icon={<Crosshair className="h-3 w-3" />} loading={p === 'launch'} disabled={!!p && p !== 'launch'} onClick={() => run(family, 'launch')} title="Known variant — should be caught by builtin antibodies">
                   launch
                 </Button>
@@ -128,19 +128,20 @@ export function Arena() {
                 <Button size="xs" mono variant="flag" icon={<Layers className="h-3 w-3" />} loading={p === 'x10'} disabled={!!p && p !== 'x10'} onClick={() => run(family, 'x10')} title="Ten novel variants, back to back">
                   ×10
                 </Button>
-                <Button
-                  size="xs"
-                  mono
-                  variant="ghost"
-                  icon={<RotateCcw className="h-3 w-3" />}
-                  loading={p === 'replay'}
-                  disabled={(!!p && p !== 'replay') || lastSeed(family) === undefined}
-                  onClick={() => run(family, 'replay')}
-                  title={lastSeed(family) !== undefined ? `Replay the identical mutation (seed ${lastSeed(family)}) — after immunity it must bounce with a citation` : 'Mutate first — replay re-runs the exact last mutation'}
-                >
-                  replay{lastSeed(family) !== undefined ? ` #${lastSeed(family)}` : ''}
-                </Button>
               </div>
+              <Button
+                size="xs"
+                mono
+                variant="ghost"
+                className="w-full !justify-start border-line"
+                icon={<RotateCcw className="h-3 w-3" />}
+                loading={p === 'replay'}
+                disabled={(!!p && p !== 'replay') || lastSeed(family) === undefined}
+                onClick={() => run(family, 'replay')}
+                title={lastSeed(family) !== undefined ? `Replay the identical mutation (seed ${lastSeed(family)}) — after immunity it must bounce with a citation` : 'Mutate first — replay re-runs the exact last mutation'}
+              >
+                replay{lastSeed(family) !== undefined ? ` #${lastSeed(family)}` : ' — mutate first'}
+              </Button>
               <div className="h-4 truncate font-mono text-[10.5px]" title={lr?.text}>
                 {lr ? <Tag tone={lr.tone} className="normal-case tracking-normal">{lr.text}</Tag> : <span className="text-fg-3">—</span>}
               </div>

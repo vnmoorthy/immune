@@ -14,7 +14,7 @@ type DotState = 'on' | 'off' | 'warn';
 
 function Readout({ state, label, value, title, valueClass }: { state: DotState; label: string; value: string; title?: string; valueClass?: string }) {
   return (
-    <div className="flex h-10 shrink-0 items-center gap-2 whitespace-nowrap" title={title}>
+    <div className="flex h-10 min-w-max shrink-0 items-center gap-2 whitespace-nowrap" title={title}>
       <Dot state={state} />
       <span className="text-fg-3">{label}</span>
       <span className={clsx('text-fg', valueClass)}>{value}</span>
@@ -92,6 +92,11 @@ function Clock() {
 
 export function CommandBar() {
   const status = usePoll(() => api.status(), 15_000);
+  useEffect(() => {
+    if (status.data || !status.error) return;
+    const id = setTimeout(() => void status.refresh(), 1500);
+    return () => clearTimeout(id);
+  }, [status.data, status.error, status.refresh]);
   const { connected, eventsPerSec } = useEventsConnection();
   const { toast } = useToast();
   const [fixtures, setFixtures] = useState(false);
@@ -131,12 +136,12 @@ export function CommandBar() {
   };
 
   return (
-    <header className="sticky top-0 z-40 flex h-10 items-center gap-5 overflow-x-auto border-b border-line bg-surface-1 px-3 font-mono text-[11px]">
+    <header className="sticky top-0 z-40 flex h-10 min-w-0 items-center gap-5 overflow-x-auto overflow-y-hidden whitespace-nowrap border-b border-line bg-surface-1 px-3 font-mono text-[11px] [scrollbar-width:none]">
       {readouts(status.data).map((r) => (
         <Readout key={r.label} {...r} />
       ))}
       {status.error ? <span className="text-breach">status: {status.error.message}</span> : null}
-      <div className="ml-auto flex shrink-0 items-center gap-5">
+      <div className="ml-auto flex min-w-max shrink-0 items-center gap-5 pl-5">
         {fixtures ? (
           <div className="flex items-center gap-2 text-breach" title="The API did not answer — showing fixture data until it does">
             <Dot state="bad" pulse />

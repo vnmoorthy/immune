@@ -135,6 +135,8 @@ export class Engine {
     } else {
       this.seeded = true;
     }
+    // warm the CLI probes (semgrep --version, senso status) so the first /api/status is instant
+    void Promise.allSettled([semgrepAvailable(), sensoAdapterStatus()]);
   }
 
   async seed(): Promise<void> {
