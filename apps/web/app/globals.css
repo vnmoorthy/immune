@@ -1,0 +1,179 @@
+@import "tailwindcss";
+
+/*
+  Immune design tokens — Gotham/Foundry register.
+  Near-black surfaces, hairline separation, colour only where it carries meaning.
+*/
+@theme {
+  --color-bg: #0b0c0e;
+  --color-surface-1: #111214;
+  --color-surface-2: #16181b;
+  --color-surface-3: #1c1f23;
+  --color-line: rgba(255, 255, 255, 0.08);
+  --color-line-strong: rgba(255, 255, 255, 0.12);
+
+  --color-fg: #e8e9eb;
+  --color-fg-2: #9aa0a6;
+  --color-fg-3: #6b7075;
+
+  --color-breach: #e5484d;
+  --color-flag: #d9a21b;
+  --color-immune: #3ecf8e;
+  --color-info: #4c8dff;
+
+  --font-sans: var(--font-geist), Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-jb-mono), "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --radius-xs: 2px;
+
+  --ease-out-fast: cubic-bezier(0, 0, 0.2, 1);
+
+  --animate-live-dot: live-dot 1.6s ease-in-out infinite;
+  --animate-fade-in: fade-in 150ms cubic-bezier(0, 0, 0.2, 1) both;
+  --animate-row-in: row-in 160ms cubic-bezier(0, 0, 0.2, 1) both;
+
+  @keyframes live-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes row-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  background: var(--color-bg);
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-fg);
+  font-size: 13px;
+  line-height: 1.45;
+  font-feature-settings: "cv11", "ss01", "tnum";
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: rgba(76, 141, 255, 0.35);
+  color: #fff;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); }
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* --- utilities --- */
+
+/* 11px uppercase section label */
+@utility label {
+  font-size: 11px;
+  line-height: 16px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 500;
+  color: var(--color-fg-2);
+}
+
+@utility mono-num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* hairline grid: parent gets this, children get bg-surface-1 */
+@utility hairline-grid {
+  display: grid;
+  gap: 1px;
+  background: var(--color-line);
+  border: 1px solid var(--color-line);
+}
+
+@utility panel {
+  background: var(--color-surface-1);
+  border: 1px solid var(--color-line);
+  border-radius: 2px;
+}
+
+@utility inset {
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-line);
+  border-radius: 2px;
+}
+
+@utility focus-ring {
+  outline: none;
+  &:focus-visible {
+    box-shadow: 0 0 0 1px var(--color-bg), 0 0 0 2px var(--color-info);
+  }
+}
+
+/* 2px semantic left rails */
+@utility rail-breach { box-shadow: inset 2px 0 0 0 var(--color-breach); }
+@utility rail-flag { box-shadow: inset 2px 0 0 0 var(--color-flag); }
+@utility rail-immune { box-shadow: inset 2px 0 0 0 var(--color-immune); }
+@utility rail-info { box-shadow: inset 2px 0 0 0 var(--color-info); }
+@utility rail-muted { box-shadow: inset 2px 0 0 0 var(--color-fg-3); }
+
+@utility truncate-mono {
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* dense data table */
+@utility data-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+  & thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--color-surface-1);
+    color: var(--color-fg-2);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 500;
+    text-align: left;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--color-line-strong);
+    white-space: nowrap;
+  }
+  & tbody td {
+    padding: 5px 8px;
+    border-bottom: 1px solid var(--color-line);
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+  & tbody tr {
+    transition: background-color 120ms cubic-bezier(0, 0, 0.2, 1);
+  }
+  & tbody tr:hover {
+    background: var(--color-surface-3);
+  }
+  & th.num, & td.num {
+    text-align: right;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+}

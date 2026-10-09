@@ -1,0 +1,9 @@
+{
+  "name": "@immune/proxy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": { "immune": "./src/cli.ts" },
+  "scripts": { "test": "vitest run", "typecheck": "tsc --noEmit" },
+  "dependencies": { "@immune/core": "workspace:*", "@modelcontextprotocol/sdk": "^1.12.0", "commander": "^12.1.0", "zod": "^3.23.0" }
+}

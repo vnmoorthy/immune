@@ -1,0 +1,25 @@
+{
+  "name": "immune",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Immune \u2014 the agent security loop that turns every attack into an antibody. MCP firewall \u2192 replayable breach trace \u2192 synthesized countermeasure \u2192 replay-proven \u2192 signed receipt \u2192 next agent is immune.",
+  "license": "MIT",
+  "packageManager": "pnpm@10.33.2",
+  "scripts": {
+    "dev": "pnpm --filter @immune/web dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "clickhouse": "bash scripts/clickhouse.sh",
+    "demo": "bash scripts/demo.sh",
+    "e2e": "tsx scripts/e2e.ts",
+    "proxy": "tsx apps/proxy/src/cli.ts",
+    "screenshots": "bash scripts/screenshot.sh"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "tsx": "^4.19.0",
+    "vitest": "^3.0.0",
+    "@types/node": "^22.0.0"
+  }
+}

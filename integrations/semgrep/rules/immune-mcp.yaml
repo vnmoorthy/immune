@@ -1,0 +1,964 @@
+# immune-mcp.yaml — Semgrep rules for weaknesses in AI-generated MCP servers and agents
+#
+# Run:   semgrep --config integrations/semgrep/rules/immune-mcp.yaml integrations/semgrep/targets --json
+#
+# Scope: TypeScript / JavaScript MCP servers written with @modelcontextprotocol/sdk
+# (`server.tool(...)`, `server.registerTool(...)`, `setRequestHandler(CallToolRequestSchema, ...)`)
+# and the plain `callTool(name, args)` dispatchers LLMs produce when asked to "write an MCP server".
+#
+# Threat model (matches Immune's attack families in packages/core/src/types.ts):
+#   tool ARGUMENTS are chosen by the model, and the model can be hijacked by a poisoned description
+#   or an injected tool result. Tool RESULTS and fetched web content are attacker-controlled text.
+#   Therefore: argument -> fetch/exec/eval/fs sink without validation is a real vulnerability, not a
+#   style issue. Each rule's `metadata.immune` block names the Immune family/detector it maps to.
+#
+# Taint rules are intraprocedural in Semgrep OSS. `--pro` adds cross-function flows (e.g. the
+# handleSummarize -> fetchUrl hop in targets/acme_server.ts); the wrapper-name heuristics
+# (`fetch*`, `run*`, `exec*` user functions as sinks) recover most of that without Pro.
+#
+# Immune's synthesizer (packages/core/src/synthesizer.ts) emits `Rule.semgrep` in this exact
+# shape — one entry under `rules:` with `mode: taint` when a sink is identifiable — so rules
+# learned from a breach at runtime and rules written here are interchangeable inputs to
+# `semgrep --config`. See ../README.md.
+
+rules:
+  # ---------------------------------------------------------------------------
+  # 1. LLM-controlled argument / tool result -> network destination (SSRF, data egress)
+  # ---------------------------------------------------------------------------
+  - id: immune-tool-result-to-fetch
+    mode: taint
+    message: >-
+      Tool input or tool-result text reaches the URL of an outbound request (`$SINK`) with no
+      destination allowlist. In an MCP server the argument is chosen by the model, and the model can
+      be hijacked by an injected tool result or poisoned description, so this is attacker-controlled
+      egress: the agent can be steered into fetching internal/metadata endpoints or exfiltrating data
+      to any host. Validate the hostname against a fixed allowlist (throwing check or guarded branch)
+      before the request.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      category: security
+      subcategory: [vuln]
+      technology: [mcp, node, typescript, javascript]
+      confidence: MEDIUM
+      likelihood: HIGH
+      impact: HIGH
+      cwe:
+        - "CWE-918: Server-Side Request Forgery (SSRF)"
+        - "CWE-20: Improper Input Validation"
+      owasp:
+        - "A10:2021 - Server-Side Request Forgery (SSRF)"
+      owasp-llm:
+        - "LLM01:2025 Prompt Injection"
+        - "LLM05:2025 Improper Output Handling"
+        - "LLM06:2025 Excessive Agency"
+      references:
+        - https://genai.owasp.org/llmrisk/llm01-prompt-injection/
+        - https://genai.owasp.org/llmrisk/llm062025-excessive-agency/
+        - https://modelcontextprotocol.io/specification/2025-06-18/basic/security_best_practices
+        - https://cwe.mitre.org/data/definitions/918.html
+        - https://semgrep.dev/docs/writing-rules/data-flow/taint-mode
+      immune:
+        family: indirect_fetch
+        detector: destination
+        gate-rule: "match.destinationNotIn + match.capabilities: [network]"
+        remediation: "assertAllowedHost(url) before fetch; or gate the call through the Immune proxy allowlist"
+    pattern-sources:
+      # (a) parameters of MCP SDK tool handlers — the model fills these in
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  $S.tool(..., async (..., $ARG, ...) => { ... })
+              - pattern-inside: |
+                  $S.tool(..., (..., $ARG, ...) => { ... })
+              - pattern-inside: |
+                  $S.registerTool(..., async (..., $ARG, ...) => { ... })
+              - pattern-inside: |
+                  $S.registerTool(..., (..., $ARG, ...) => { ... })
+              - pattern-inside: |
+                  $S.setRequestHandler($SCHEMA, async (..., $ARG, ...) => { ... })
+              - pattern-inside: |
+                  $S.setRequestHandler($SCHEMA, (..., $ARG, ...) => { ... })
+          - focus-metavariable: $ARG
+      # (b) plain handler functions whose parameter is named like tool input (args/input/params/...)
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  function $F(..., $ARG, ...) { ... }
+              - pattern-inside: |
+                  async function $F(..., $ARG, ...) { ... }
+              - pattern-inside: |
+                  $F = (..., $ARG, ...) => { ... }
+              - pattern-inside: |
+                  $F = async (..., $ARG, ...) => { ... }
+          - metavariable-regex:
+              metavariable: $ARG
+              regex: '^(args|arguments|input|inputs|params|parameters|toolArgs|toolInput|toolParams|request|req|payload)\b'
+          - focus-metavariable: $ARG
+      # (c) explicit MCP request / tool-result shapes
+      - pattern: $REQ.params.arguments
+        exact: true
+      - pattern: $CLIENT.callTool(...)
+        exact: true
+      - pattern: $RESULT.content[$I].text
+        exact: true
+      # (d) fetched web content and HTTP responses are attacker-controlled text
+      - pattern: fetch(...)
+        exact: true
+      - pattern: axios(...)
+        exact: true
+      - pattern: axios.$M(...)
+        exact: true
+      - pattern: got(...)
+        exact: true
+      - pattern: got.$M(...)
+        exact: true
+      # (e) "tool result" getters an LLM typically writes: readSharedDoc(), getPage(), loadDocument(), fetchEmail()...
+      - patterns:
+          - pattern-either:
+              - pattern: $F(...)
+              - pattern: $O.$F(...)
+          - metavariable-regex:
+              metavariable: $F
+              regex: '(?i)^(read|get|fetch|load|open|download|search|list|query)_?(shared|remote|external|user|customer|web)?_?(doc|docs|document|documents|file|files|page|pages|content|contents|note|notes|email|emails|mail|message|messages|ticket|tickets|issue|issues|comment|comments|result|results|url|site|feed|record|records)s?$'
+        exact: true
+    pattern-sanitizers:
+      # throwing allowlist check: assertAllowedHost(url) / requireAllowlistedDestination(url) ...
+      - patterns:
+          - pattern-either:
+              - pattern: $F($X, ...)
+              - pattern: $O.$F($X, ...)
+          - metavariable-regex:
+              metavariable: $F
+              regex: '(?i)^(assert|require|check|ensure|validate|verify|enforce|guard)[A-Za-z0-9_]*(host|destination|url|allow|origin|domain|egress|dest)[A-Za-z0-9_]*$'
+          - focus-metavariable: $X
+        by-side-effect: true
+      # guarded branch: if (ALLOWED_HOSTS.has(new URL(url).hostname)) { fetch(url) }
+      - patterns:
+          - pattern-inside: |
+              if (<... $ALLOW.has(<... $X ...>) ...>) { ... }
+          - pattern: $X
+      - patterns:
+          - pattern-inside: |
+              if (<... $ALLOW.includes(<... $X ...>) ...>) { ... }
+          - pattern: $X
+      - patterns:
+          - pattern-inside: |
+              if (<... $F(<... $X ...>) ...>) { ... }
+          - metavariable-regex:
+              metavariable: $F
+              regex: '(?i)^(is|has)?[A-Za-z0-9_]*(allowed|allowlisted|whitelisted|safe|trusted|permitted)[A-Za-z0-9_]*$'
+          - pattern: $X
+      # early-exit guard: if (!ALLOWED_HOSTS.has(host)) throw/return; ...rest is clean
+      - patterns:
+          - pattern-inside: |
+              if (!<... $ALLOW.has(<... $X ...>) ...>) { throw $E; }
+              ...
+          - pattern: $X
+      - patterns:
+          - pattern-inside: |
+              if (!<... $ALLOW.has(<... $X ...>) ...>) { return $R; }
+              ...
+          - pattern: $X
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: fetch($URL, ...)
+              - pattern: axios($URL, ...)
+              - pattern: axios.$M($URL, ...)
+              - pattern: 'axios({..., url: $URL, ...})'
+              - pattern: got($URL, ...)
+              - pattern: got.$M($URL, ...)
+              - pattern: ky($URL, ...)
+              - pattern: ky.$M($URL, ...)
+              - pattern: $HTTP.request($URL, ...)
+              - pattern: $HTTP.get($URL, ...)
+              - pattern: new Request($URL, ...)
+              - pattern: $UNDICI.fetch($URL, ...)
+          - focus-metavariable: $URL
+      # user-written wrappers: fetchUrl(x), downloadPage(x), scrape(x) — recovers one hop of
+      # interprocedural flow without --pro
+      - patterns:
+          - pattern-either:
+              - pattern: $F($ARG, ...)
+              - pattern: $O.$F($ARG, ...)
+          - metavariable-regex:
+              metavariable: $F
+              regex: '(?i)^(fetch|download|crawl|scrape|curl|http(Get|Post|Request)|getUrl|loadUrl|openUrl|requestUrl|callUrl)[A-Za-z0-9_]*$'
+          - focus-metavariable: $ARG
+
+  # ---------------------------------------------------------------------------
+  # 2. LLM-controlled argument / tool result -> shell (command injection)
+  # ---------------------------------------------------------------------------
+  - id: immune-tool-result-to-exec
+    mode: taint
+    message: >-
+      Tool input or tool-result text reaches a shell command (`$SINK`). The model chooses this value
+      and the model can be hijacked by an injected document or poisoned description, so an attacker
+      who controls any tool result controls this command line. Use the argv form with a fixed binary
+      (`spawn(bin, [args])`, no `shell: true`), validate against a strict allowlist/regex and throw, or
+      escape with a shell-quoting library.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      category: security
+      subcategory: [vuln]
+      technology: [mcp, node, typescript, javascript]
+      confidence: MEDIUM
+      likelihood: HIGH
+      impact: HIGH
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+      owasp:
+        - "A03:2021 - Injection"
+      owasp-llm:
+        - "LLM05:2025 Improper Output Handling"
+        - "LLM06:2025 Excessive Agency"
+        - "LLM01:2025 Prompt Injection"
+      references:
+        - https://genai.owasp.org/llmrisk/llm052025-improper-output-handling/
+        - https://cwe.mitre.org/data/definitions/78.html
+        - https://nodejs.org/api/child_process.html#child_processexeccommand-options-callback
+        - https://modelcontextprotocol.io/specification/2025-06-18/basic/security_best_practices
+      immune:
+        family: result_injection
+        detector: taint_gate
+        gate-rule: "match.afterTainted + match.capabilities: [exec]"
+        remediation: "argv form with fixed binary; allowlist the report/job name; never interpolate tool text into a shell string"
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  $S.tool(..., async (..., $ARG, ...) => { ... })
+              - pattern-inside: |
+                  $S.tool(..., (..., $ARG, ...) => { ... })
+              - pattern-inside: |
+                  $S.registerTool(..., async (..., $ARG, ...) => { ... })
+              - pattern-inside: |
+                  $S.registerTool(..., (..., $ARG, ...) => { ... })
+              - pattern-inside: |
+                  $S.setRequestHandler($SCHEMA, async (..., $ARG, ...) => { ... })
+              - pattern-inside: |
+                  $S.setRequestHandler($SCHEMA, (..., $ARG, ...) => { ... })
+          - focus-metavariable: $ARG
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  function $F(..., $ARG, ...) { ... }
+              - pattern-inside: |
+                  async function $F(..., $ARG, ...) { ... }
+              - pattern-inside: |
+                  $F = (..., $ARG, ...) => { ... }
+              - pattern-inside: |
+                  $F = async (..., $ARG, ...) => { ... }
+          - metavariable-regex:
+              metavariable: $ARG
+              regex: '^(args|arguments|input|inputs|params|parameters|toolArgs|toolInput|toolParams|request|req|payload)\b'
+          - focus-metavariable: $ARG
+      - pattern: $REQ.params.arguments
+        exact: true
+      - pattern: $CLIENT.callTool(...)
+        exact: true
+      - pattern: $RESULT.content[$I].text
+        exact: true
+      - pattern: fetch(...)
+        exact: true
+      - pattern: axios(...)
+        exact: true
+      - pattern: axios.$M(...)
+        exact: true
+      - pattern: got(...)
+        exact: true
+      - pattern: got.$M(...)
+        exact: true
+      - patterns:
+          - pattern-either:
+              - pattern: $F(...)
+              - pattern: $O.$F(...)
+          - metavariable-regex:
+              metavariable: $F
+              regex: '(?i)^(read|get|fetch|load|open|download|search|list|query)_?(shared|remote|external|user|customer|web)?_?(doc|docs|document|documents|file|files|page|pages|content|contents|note|notes|email|emails|mail|message|messages|ticket|tickets|issue|issues|comment|comments|result|results|url|site|feed|record|records)s?$'
+        exact: true
+    pattern-sanitizers:
+      # shell-quoting / escaping helpers
+      - patterns:
+          - pattern-either:
+              - pattern: $F(...)
+              - pattern: $O.$F(...)
+          - metavariable-regex:
+              metavariable: $F
+              regex: '(?i)^(shell_?(escape|quote)|escape_?shell(_?arg)?|quote|shlex|sanitize[A-Za-z0-9_]*|validate[A-Za-z0-9_]*|assert[A-Za-z0-9_]*)$'
+      # strict-regex guard with early exit: if (!/^[a-z0-9_-]+$/.test(name)) throw ...
+      - patterns:
+          - pattern-inside: |
+              if (!<... $RE.test($X) ...>) { throw $E; }
+              ...
+          - pattern: $X
+      - patterns:
+          - pattern-inside: |
+              if (!<... $RE.test($X) ...>) { return $R; }
+              ...
+          - pattern: $X
+      # allowlist membership guard
+      - patterns:
+          - pattern-inside: |
+              if (<... $ALLOW.has($X) ...>) { ... }
+          - pattern: $X
+      - patterns:
+          - pattern-inside: |
+              if (<... $ALLOW.includes($X) ...>) { ... }
+          - pattern: $X
+    pattern-sinks:
+      # exec / execSync take a shell string
+      - patterns:
+          - pattern-either:
+              - pattern: exec($CMD, ...)
+              - pattern: execSync($CMD, ...)
+              - pattern: $CP.exec($CMD, ...)
+              - pattern: $CP.execSync($CMD, ...)
+              - pattern: $UTIL.promisify(exec)($CMD, ...)
+              - pattern: $EXECA.command($CMD, ...)
+              - pattern: $EXECA.commandSync($CMD, ...)
+          - focus-metavariable: $CMD
+      # spawn / spawnSync / execFile with a shell
+      - patterns:
+          - pattern-either:
+              - pattern: 'spawn($CMD, ..., {..., shell: true, ...})'
+              - pattern: 'spawnSync($CMD, ..., {..., shell: true, ...})'
+              - pattern: 'execFile($CMD, ..., {..., shell: true, ...})'
+              - pattern: 'execFileSync($CMD, ..., {..., shell: true, ...})'
+              - pattern: '$CP.spawn($CMD, ..., {..., shell: true, ...})'
+              - pattern: '$CP.spawnSync($CMD, ..., {..., shell: true, ...})'
+              - pattern: '$CP.execFile($CMD, ..., {..., shell: true, ...})'
+              - pattern: '$CP.execFileSync($CMD, ..., {..., shell: true, ...})'
+          - focus-metavariable: $CMD
+      - patterns:
+          - pattern-either:
+              - pattern: 'spawn($BIN, $ARGS, {..., shell: true, ...})'
+              - pattern: 'spawnSync($BIN, $ARGS, {..., shell: true, ...})'
+              - pattern: '$CP.spawn($BIN, $ARGS, {..., shell: true, ...})'
+              - pattern: '$CP.spawnSync($BIN, $ARGS, {..., shell: true, ...})'
+          - focus-metavariable: $ARGS
+      # sh -c / bash -c / cmd /c
+      - patterns:
+          - pattern-either:
+              - pattern: spawn("$SH", ["-c", $CMD, ...], ...)
+              - pattern: spawnSync("$SH", ["-c", $CMD, ...], ...)
+              - pattern: execFile("$SH", ["-c", $CMD, ...], ...)
+              - pattern: execFileSync("$SH", ["-c", $CMD, ...], ...)
+              - pattern: $CP.spawn("$SH", ["-c", $CMD, ...], ...)
+              - pattern: $CP.spawnSync("$SH", ["-c", $CMD, ...], ...)
+              - pattern: $CP.execFile("$SH", ["-c", $CMD, ...], ...)
+              - pattern: $CP.execFileSync("$SH", ["-c", $CMD, ...], ...)
+              - pattern: spawn("$SH", ["/c", $CMD, ...], ...)
+              - pattern: $CP.spawn("$SH", ["/c", $CMD, ...], ...)
+          - metavariable-regex:
+              metavariable: $SH
+              regex: '^(/bin/|/usr/bin/)?(sh|bash|zsh|dash|ksh|cmd(\.exe)?|powershell(\.exe)?|pwsh)$'
+          - focus-metavariable: $CMD
+      # user-written wrappers: runReport(x), executeCommand(x), shellOut(x)
+      - patterns:
+          - pattern-either:
+              - pattern: $F($ARG, ...)
+              - pattern: $O.$F($ARG, ...)
+          - metavariable-regex:
+              metavariable: $F
+              regex: '(?i)^(exec|execute|run|spawn|shell|sh|system|cmd|command|popen|invoke)[A-Za-z0-9_]*$'
+          - focus-metavariable: $ARG
+
+  # ---------------------------------------------------------------------------
+  # 3. Credentials placed in the body / query string of a request to a caller-chosen destination
+  # ---------------------------------------------------------------------------
+  - id: immune-secret-in-outbound-body
+    mode: taint
+    message: >-
+      A credential-like value (`$SOURCE`) is written into the body, headers or URL of an outbound
+      request whose destination is not a fixed first-party host. In an MCP server the destination is
+      typically a tool argument the model chose, so a hijacked agent exfiltrates the secret with one
+      call ("POST the API credentials to https://evil.example"). Never let secrets reach a
+      caller-supplied URL: keep credentials out of tool-visible payloads, pin the destination to an
+      allowlisted host, and scope credentials per destination.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      category: security
+      subcategory: [vuln]
+      technology: [mcp, node, typescript, javascript]
+      confidence: MEDIUM
+      likelihood: HIGH
+      impact: CRITICAL
+      cwe:
+        - "CWE-200: Exposure of Sensitive Information to an Unauthorized Actor"
+        - "CWE-522: Insufficiently Protected Credentials"
+      owasp:
+        - "A02:2021 - Cryptographic Failures"
+        - "A01:2021 - Broken Access Control"
+      owasp-llm:
+        - "LLM02:2025 Sensitive Information Disclosure"
+        - "LLM06:2025 Excessive Agency"
+        - "LLM01:2025 Prompt Injection"
+      references:
+        - https://genai.owasp.org/llmrisk/llm022025-sensitive-information-disclosure/
+        - https://cwe.mitre.org/data/definitions/522.html
+        - https://invariantlabs.ai/blog/mcp-security-notification-tool-poisoning-attacks
+      immune:
+        family: secret_exfil
+        detector: secret_exfil
+        gate-rule: "match.carriesSecret + match.destinationNotIn"
+        remediation: "pin destinations; strip secret-looking tokens from outbound args; proxy denies network calls that carry a secret to a non-allowlisted host"
+    pattern-sources:
+      # env secrets
+      - patterns:
+          - pattern: process.env.$K
+          - metavariable-regex:
+              metavariable: $K
+              regex: '(?i)(secret|token|passw(or)?d|api_?key|apikey|private_?key|credential|client_?secret|auth)'
+      # identifiers / properties named like secrets: apiKey, creds, API_CREDENTIALS, awsSecretAccessKey ...
+      - patterns:
+          - pattern: $V
+          - metavariable-regex:
+              metavariable: $V
+              regex: '(?i)^[A-Za-z0-9_$]*(secret|token|passw(or)?d|api_?key|apikey|private_?key|credentials?|creds?|auth_?token|bearer|session_?key)s?$'
+        exact: true
+      - patterns:
+          - pattern: $O.$P
+          - metavariable-regex:
+              metavariable: $P
+              regex: '(?i)^[A-Za-z0-9_$]*(secret|token|passw(or)?d|api_?key|apikey|private_?key|credentials?|creds?|auth_?token|bearer|session_?key)s?$'
+        exact: true
+      # credential getters: getApiCredentials(), loadSecrets(), fetchToken() ...
+      - patterns:
+          - pattern-either:
+              - pattern: $F(...)
+              - pattern: $O.$F(...)
+          - metavariable-regex:
+              metavariable: $F
+              regex: '(?i)^(get|read|load|fetch|resolve|lookup|retrieve)_?(api_?|service_?|aws_?|oauth_?|db_?|user_?)?(credential|secret|token|key|password|auth)s?$'
+        exact: true
+      # literal secrets of well-known shapes
+      - pattern-regex: '(AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9]{20,}|xox[abp]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)'
+    pattern-sanitizers:
+      - pattern: redact(...)
+      - pattern: $O.redact(...)
+      - pattern: mask(...)
+      - pattern: $O.mask(...)
+      - pattern: hash(...)
+      - pattern: sha256(...)
+      - pattern: $O.digest(...)
+    pattern-sinks:
+      # fetch(url, { body / headers }) to a non-literal destination
+      - patterns:
+          - pattern-either:
+              - pattern: fetch($URL, $OPTS)
+              - pattern: $UNDICI.fetch($URL, $OPTS)
+              - pattern: got($URL, $OPTS)
+              - pattern: got.$M($URL, $OPTS)
+              - pattern: ky($URL, $OPTS)
+              - pattern: ky.$M($URL, $OPTS)
+              - pattern: $HTTP.request($URL, $OPTS, ...)
+          - pattern-not: fetch("...", ...)
+          - pattern-not: $UNDICI.fetch("...", ...)
+          - pattern-not: got("...", ...)
+          - pattern-not: got.$M("...", ...)
+          - pattern-not: ky("...", ...)
+          - pattern-not: ky.$M("...", ...)
+          - pattern-not: $HTTP.request("...", ...)
+          - metavariable-pattern:
+              metavariable: $URL
+              patterns:
+                - pattern-not-regex: '^[`''"]https?://[A-Za-z0-9.-]+'
+          - focus-metavariable: $OPTS
+      # axios.post(url, data) / instance.post(url, data) to a non-literal destination
+      - patterns:
+          - pattern-either:
+              - pattern: axios.$M($URL, $DATA, ...)
+              - pattern: $AX.post($URL, $DATA, ...)
+              - pattern: $AX.put($URL, $DATA, ...)
+              - pattern: $AX.patch($URL, $DATA, ...)
+          - pattern-not: axios.$M("...", ...)
+          - pattern-not: $AX.post("...", ...)
+          - pattern-not: $AX.put("...", ...)
+          - pattern-not: $AX.patch("...", ...)
+          - metavariable-pattern:
+              metavariable: $URL
+              patterns:
+                - pattern-not-regex: '^[`''"]https?://[A-Za-z0-9.-]+'
+          - focus-metavariable: $DATA
+      - patterns:
+          - pattern: 'axios({..., data: $DATA, ...})'
+          - pattern-not: 'axios({..., url: "...", ...})'
+          - focus-metavariable: $DATA
+      # secret inside the URL / query string of a non-first-party request
+      - patterns:
+          - pattern-either:
+              - pattern: fetch($URL, ...)
+              - pattern: axios($URL, ...)
+              - pattern: axios.$M($URL, ...)
+              - pattern: got($URL, ...)
+              - pattern: got.$M($URL, ...)
+              - pattern: $HTTP.request($URL, ...)
+              - pattern: new Request($URL, ...)
+          - metavariable-pattern:
+              metavariable: $URL
+              patterns:
+                - pattern-not-regex: '^[`''"]https?://[A-Za-z0-9.-]+'
+          - focus-metavariable: $URL
+
+  # ---------------------------------------------------------------------------
+  # 4. Tool poisoning: hidden instructions in a registered tool description
+  # ---------------------------------------------------------------------------
+  - id: immune-poisoned-tool-description
+    message: >-
+      This tool description contains hidden-instruction markers (`<IMPORTANT>`-style tags, "do not
+      tell the user", "ignore previous instructions", "before using this tool", zero-width characters
+      or references to ~/.ssh / id_rsa). The description is read by the model, not the user, so this
+      is the tool-poisoning attack: the model will follow these instructions and the human never sees
+      them. Descriptions must describe the tool only. Immune's proxy quarantines tools whose
+      description trips this detector and pins the description hash to catch later edits (rug pulls).
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      category: security
+      subcategory: [vuln]
+      technology: [mcp, typescript, javascript]
+      confidence: HIGH
+      likelihood: HIGH
+      impact: HIGH
+      cwe:
+        - "CWE-1427: Improper Neutralization of Input Used for LLM Prompting"
+        - "CWE-506: Embedded Malicious Code"
+      owasp-llm:
+        - "LLM01:2025 Prompt Injection"
+        - "LLM03:2025 Supply Chain"
+      references:
+        - https://invariantlabs.ai/blog/mcp-security-notification-tool-poisoning-attacks
+        - https://genai.owasp.org/llmrisk/llm01-prompt-injection/
+        - https://cwe.mitre.org/data/definitions/1427.html
+        - https://modelcontextprotocol.io/specification/2025-06-18/basic/security_best_practices
+      immune:
+        family: poisoned_description
+        detector: poisoned_description
+        gate-rule: "match.phase: tool_def + match.patterns"
+        remediation: "quarantine the tool; pin description hash; strip markup and imperative instructions from descriptions"
+    patterns:
+      - pattern-either:
+          - pattern: $S.tool($NAME, $DESC, ...)
+          - pattern: '$S.registerTool($NAME, {..., description: $DESC, ...}, ...)'
+          - pattern: '$S.addTool({..., description: $DESC, ...})'
+          - pattern: |
+              { ..., name: $NAME, ..., description: $DESC, ... }
+          - pattern: |
+              { ..., description: $DESC, ..., inputSchema: $SCHEMA, ... }
+          - pattern: new Tool($NAME, $DESC, ...)
+      - metavariable-regex:
+          metavariable: $DESC
+          regex: '(?is).*(<\s*important\s*>|<\s*/?\s*(system|instructions?|hidden|secret|admin|override)[^>]*>|<!--|ignore (all |any )?(previous|prior|above|earlier) (instructions|prompts|rules|messages)|do not (tell|mention|reveal|inform|show|disclose|alert|notify)|don''?t (tell|mention|reveal|inform|show|disclose|alert|notify)|without (telling|informing|notifying|mentioning|asking)|(before|after|when) (using|calling|invoking|running) this tool|you must (first|always|also|silently|never)|system prompt|\\u200[bcd]|\\u2060|\\ufeff|\x{200b}|\x{200c}|\x{200d}|\x{2060}|\x{feff}|~/\.ssh|id_rsa|id_ed25519|\.aws/credentials)'
+
+  # ---------------------------------------------------------------------------
+  # 5. No destination allowlist in a tool handler that makes network requests
+  # ---------------------------------------------------------------------------
+  - id: immune-missing-host-allowlist
+    message: >-
+      This MCP tool handler sends a request to a dynamic URL (`$URL`) and no destination allowlist
+      check is visible in the handler (no `ALLOWED_HOSTS.has(...)`/`includes(...)` guard, no
+      `assertAllowedHost(...)`/`isAllowedHost(...)`). Even when the URL is not directly a tool
+      argument, a model that has read an injected document can steer it. Add a fixed hostname
+      allowlist in the handler, or run the server behind the Immune proxy, which enforces
+      `destinationNotIn` per call and cites the ruling that denied it.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      category: security
+      subcategory: [audit]
+      technology: [mcp, node, typescript, javascript]
+      confidence: LOW
+      likelihood: MEDIUM
+      impact: HIGH
+      cwe:
+        - "CWE-918: Server-Side Request Forgery (SSRF)"
+        - "CWE-862: Missing Authorization"
+      owasp:
+        - "A10:2021 - Server-Side Request Forgery (SSRF)"
+      owasp-llm:
+        - "LLM06:2025 Excessive Agency"
+      references:
+        - https://genai.owasp.org/llmrisk/llm062025-excessive-agency/
+        - https://cwe.mitre.org/data/definitions/918.html
+        - https://modelcontextprotocol.io/specification/2025-06-18/basic/security_best_practices
+      immune:
+        family: indirect_fetch
+        detector: destination
+        gate-rule: "match.destinationNotIn (builtin allowlist rule)"
+        remediation: "ALLOWED_HOSTS allowlist per tool; least-privilege egress"
+    patterns:
+      - pattern-either:
+          - pattern-inside: |
+              $S.tool(..., async (...) => { ... })
+          - pattern-inside: |
+              $S.tool(..., (...) => { ... })
+          - pattern-inside: |
+              $S.registerTool(..., async (...) => { ... })
+          - pattern-inside: |
+              $S.setRequestHandler($SCHEMA, async (...) => { ... })
+          - patterns:
+              - pattern-either:
+                  - pattern-inside: |
+                      function $F(...) { ... }
+                  - pattern-inside: |
+                      async function $F(...) { ... }
+              - metavariable-regex:
+                  metavariable: $F
+                  regex: '(?i)^((fetch|get|load|download|open|crawl|scrape|request)[A-Za-z0-9_]*(url|page|remote|web|http|link|site|resource|endpoint|json|feed)[A-Za-z0-9_]*|(call|handle|execute|dispatch|invoke|run)_?tool[A-Za-z0-9_]*|send_?(webhook|request|notification)[A-Za-z0-9_]*)$'
+      - pattern-either:
+          - pattern: fetch($URL, ...)
+          - pattern: axios($URL, ...)
+          - pattern: axios.$M($URL, ...)
+          - pattern: got($URL, ...)
+          - pattern: got.$M($URL, ...)
+          - pattern: $HTTP.request($URL, ...)
+      - pattern-not: fetch("...", ...)
+      - pattern-not: axios("...", ...)
+      - pattern-not: axios.$M("...", ...)
+      - pattern-not: got("...", ...)
+      - pattern-not: got.$M("...", ...)
+      - pattern-not: $HTTP.request("...", ...)
+      - metavariable-pattern:
+          metavariable: $URL
+          patterns:
+            - pattern-not-regex: '^[`''"]https?://[A-Za-z0-9.-]+'
+      - pattern-not-inside: |
+          if (<... $ALLOW.has(...) ...>) { ... }
+      - pattern-not-inside: |
+          if (<... $ALLOW.includes(...) ...>) { ... }
+      - pattern-not-inside: |
+          if (<... isAllowedHost(...) ...>) { ... }
+      - pattern-not-inside: |
+          if (<... isAllowed(...) ...>) { ... }
+      - pattern-not-inside: |
+          if (<... isAllowlisted(...) ...>) { ... }
+      - pattern-not-inside: |
+          if (<... isSafeUrl(...) ...>) { ... }
+      - pattern-not-inside: |
+          if (<... isTrustedHost(...) ...>) { ... }
+      - pattern-not-inside: |
+          if (!<... $ALLOW.has(...) ...>) { ... }
+          ...
+      - pattern-not-inside: |
+          if (!<... $ALLOW.includes(...) ...>) { ... }
+          ...
+      - pattern-not-inside: |
+          assertAllowedHost(...);
+          ...
+      - pattern-not-inside: |
+          assertAllowedDestination(...);
+          ...
+      - pattern-not-inside: |
+          assertAllowlisted(...);
+          ...
+      - pattern-not-inside: |
+          checkAllowlist(...);
+          ...
+      - pattern-not-inside: |
+          validateDestination(...);
+          ...
+      - pattern-not-inside: |
+          validateUrl(...);
+          ...
+      - pattern-not-inside: |
+          $X = assertAllowedHost(...);
+          ...
+
+  # ---------------------------------------------------------------------------
+  # 6. Tool output / fetched content evaluated as code
+  # ---------------------------------------------------------------------------
+  - id: immune-eval-on-tool-output
+    mode: taint
+    message: >-
+      Tool input, tool-result text or fetched content reaches a code-execution sink (`$SINK`). A
+      document or web page the agent read can therefore execute arbitrary JavaScript inside the MCP
+      server process, with the server's credentials. Never evaluate model- or tool-provided strings;
+      if plugins are required, run them in an isolated process with an explicit capability policy.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      category: security
+      subcategory: [vuln]
+      technology: [mcp, node, typescript, javascript]
+      confidence: HIGH
+      likelihood: MEDIUM
+      impact: CRITICAL
+      cwe:
+        - "CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code ('Eval Injection')"
+        - "CWE-94: Improper Control of Generation of Code ('Code Injection')"
+      owasp:
+        - "A03:2021 - Injection"
+      owasp-llm:
+        - "LLM05:2025 Improper Output Handling"
+        - "LLM01:2025 Prompt Injection"
+      references:
+        - https://genai.owasp.org/llmrisk/llm052025-improper-output-handling/
+        - https://cwe.mitre.org/data/definitions/95.html
+        - https://nodejs.org/api/vm.html
+      immune:
+        family: result_injection
+        detector: taint_gate
+        gate-rule: "match.afterTainted + match.capabilities: [exec]"
+        remediation: "remove eval/new Function; isolate plugins; treat every tool result as untrusted text"
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  $S.tool(..., async (..., $ARG, ...) => { ... })
+              - pattern-inside: |
+                  $S.tool(..., (..., $ARG, ...) => { ... })
+              - pattern-inside: |
+                  $S.registerTool(..., async (..., $ARG, ...) => { ... })
+              - pattern-inside: |
+                  $S.setRequestHandler($SCHEMA, async (..., $ARG, ...) => { ... })
+          - focus-metavariable: $ARG
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  function $F(..., $ARG, ...) { ... }
+              - pattern-inside: |
+                  async function $F(..., $ARG, ...) { ... }
+              - pattern-inside: |
+                  $F = (..., $ARG, ...) => { ... }
+              - pattern-inside: |
+                  $F = async (..., $ARG, ...) => { ... }
+          - metavariable-regex:
+              metavariable: $ARG
+              regex: '^(args|arguments|input|inputs|params|parameters|toolArgs|toolInput|toolParams|request|req|payload)\b'
+          - focus-metavariable: $ARG
+      - pattern: $REQ.params.arguments
+        exact: true
+      - pattern: $CLIENT.callTool(...)
+        exact: true
+      - pattern: $RESULT.content[$I].text
+        exact: true
+      - pattern: fetch(...)
+        exact: true
+      - pattern: axios(...)
+        exact: true
+      - pattern: axios.$M(...)
+        exact: true
+      - pattern: got(...)
+        exact: true
+      - pattern: got.$M(...)
+        exact: true
+      - patterns:
+          - pattern-either:
+              - pattern: $F(...)
+              - pattern: $O.$F(...)
+          - metavariable-regex:
+              metavariable: $F
+              regex: '(?i)^(read|get|fetch|load|open|download|search|list|query)_?(shared|remote|external|user|customer|web)?_?(doc|docs|document|documents|file|files|page|pages|content|contents|note|notes|email|emails|mail|message|messages|ticket|tickets|issue|issues|comment|comments|result|results|url|site|feed|record|records|plugin|plugins|script|scripts|code)s?$'
+        exact: true
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: eval($X)
+              - pattern: new Function(..., $X)
+              - pattern: Function(..., $X)
+              - pattern: $VM.runInNewContext($X, ...)
+              - pattern: $VM.runInThisContext($X, ...)
+              - pattern: $VM.runInContext($X, ...)
+              - pattern: new $VM.Script($X, ...)
+              - pattern: $VM.compileFunction($X, ...)
+              - pattern: import($X)
+              - pattern: require($X)
+              - pattern: setTimeout($X, ...)
+              - pattern: setInterval($X, ...)
+          - focus-metavariable: $X
+
+  # ---------------------------------------------------------------------------
+  # 7. Tool output written into ~/.ssh, .env, shell rc files — or to an attacker-chosen path
+  # ---------------------------------------------------------------------------
+  - id: immune-write-to-sensitive-path
+    mode: taint
+    message: >-
+      Tool input or tool-result text is written to the filesystem (`$SINK`) either into a sensitive
+      location (~/.ssh, .env, shell rc files, package/git/cloud config, agent config such as
+      .claude/.cursor/.mcp.json) or to a path the caller controls. A hijacked agent uses this to
+      install SSH keys, overwrite credentials, or plant instructions that persist into the next
+      session. Confine writes to a sandbox root (`path.resolve(root, path.basename(name))` plus a
+      `startsWith(root)` check) and never let tool text choose dotfile destinations.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      category: security
+      subcategory: [vuln]
+      technology: [mcp, node, typescript, javascript]
+      confidence: MEDIUM
+      likelihood: MEDIUM
+      impact: CRITICAL
+      cwe:
+        - "CWE-73: External Control of File Name or Path"
+        - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+        - "CWE-732: Incorrect Permission Assignment for Critical Resource"
+      owasp:
+        - "A01:2021 - Broken Access Control"
+      owasp-llm:
+        - "LLM06:2025 Excessive Agency"
+        - "LLM05:2025 Improper Output Handling"
+      references:
+        - https://genai.owasp.org/llmrisk/llm062025-excessive-agency/
+        - https://cwe.mitre.org/data/definitions/73.html
+        - https://cwe.mitre.org/data/definitions/22.html
+      immune:
+        family: result_injection
+        detector: taint_gate
+        gate-rule: "match.afterTainted + match.capabilities: [write]"
+        remediation: "sandbox root + basename; deny writes outside the project; proxy blocks write capability after a tainted result"
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  $S.tool(..., async (..., $ARG, ...) => { ... })
+              - pattern-inside: |
+                  $S.tool(..., (..., $ARG, ...) => { ... })
+              - pattern-inside: |
+                  $S.registerTool(..., async (..., $ARG, ...) => { ... })
+              - pattern-inside: |
+                  $S.setRequestHandler($SCHEMA, async (..., $ARG, ...) => { ... })
+          - focus-metavariable: $ARG
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  function $F(..., $ARG, ...) { ... }
+              - pattern-inside: |
+                  async function $F(..., $ARG, ...) { ... }
+              - pattern-inside: |
+                  $F = (..., $ARG, ...) => { ... }
+              - pattern-inside: |
+                  $F = async (..., $ARG, ...) => { ... }
+          - metavariable-regex:
+              metavariable: $ARG
+              regex: '^(args|arguments|input|inputs|params|parameters|toolArgs|toolInput|toolParams|request|req|payload)\b'
+          - focus-metavariable: $ARG
+      - pattern: $REQ.params.arguments
+        exact: true
+      - pattern: $CLIENT.callTool(...)
+        exact: true
+      - pattern: $RESULT.content[$I].text
+        exact: true
+      - pattern: fetch(...)
+        exact: true
+      - pattern: axios(...)
+        exact: true
+      - pattern: axios.$M(...)
+        exact: true
+      - patterns:
+          - pattern-either:
+              - pattern: $F(...)
+              - pattern: $O.$F(...)
+          - metavariable-regex:
+              metavariable: $F
+              regex: '(?i)^(read|get|fetch|load|open|download|search|list|query)_?(shared|remote|external|user|customer|web)?_?(doc|docs|document|documents|file|files|page|pages|content|contents|note|notes|email|emails|mail|message|messages|ticket|tickets|issue|issues|comment|comments|result|results|url|site|feed|record|records)s?$'
+        exact: true
+    pattern-sanitizers:
+      # a bare filename cannot escape the directory
+      - pattern: path.basename(...)
+      - pattern: $P.basename(...)
+      - pattern: basename(...)
+      # sandbox-root guard with early exit: if (!target.startsWith(ROOT)) throw ...
+      - patterns:
+          - pattern-inside: |
+              if (!<... $X.startsWith($ROOT) ...>) { throw $E; }
+              ...
+          - pattern: $X
+      - patterns:
+          - pattern-inside: |
+              if (!<... $X.startsWith($ROOT) ...>) { return $R; }
+              ...
+          - pattern: $X
+      - patterns:
+          - pattern-inside: |
+              if (<... $X.startsWith($ROOT) ...>) { ... }
+          - pattern: $X
+      - patterns:
+          - pattern-either:
+              - pattern: $F(...)
+              - pattern: $O.$F(...)
+          - metavariable-regex:
+              metavariable: $F
+              regex: '(?i)^(assert|require|ensure|check|validate|resolve|sanitize|safe)[A-Za-z0-9_]*(path|inside|within|sandbox|root|dir)[A-Za-z0-9_]*$'
+    pattern-sinks:
+      # (a) tool text written INTO a sensitive location
+      - patterns:
+          - pattern-either:
+              - pattern: writeFileSync($PATH, $DATA, ...)
+              - pattern: writeFile($PATH, $DATA, ...)
+              - pattern: appendFileSync($PATH, $DATA, ...)
+              - pattern: appendFile($PATH, $DATA, ...)
+              - pattern: $FS.writeFileSync($PATH, $DATA, ...)
+              - pattern: $FS.writeFile($PATH, $DATA, ...)
+              - pattern: $FS.appendFileSync($PATH, $DATA, ...)
+              - pattern: $FS.appendFile($PATH, $DATA, ...)
+              - pattern: $FS.outputFile($PATH, $DATA, ...)
+              - pattern: Bun.write($PATH, $DATA, ...)
+              - pattern: Deno.writeTextFile($PATH, $DATA, ...)
+              - pattern: Deno.writeFile($PATH, $DATA, ...)
+          - metavariable-regex:
+              metavariable: $PATH
+              regex: '(?is).*(\.ssh|authorized_keys|id_(rsa|ed25519|ecdsa|dsa)|\.env\b|\.bashrc|\.zshrc|\.zshenv|\.zprofile|\.profile|\.bash_profile|\.npmrc|\.pypirc|\.gitconfig|\.git/hooks|\.aws|\.kube|\.docker|\.config/gh|\.netrc|\.pgpass|\.claude|\.cursor|\.codex|\.mcp\.json|\.vscode|/etc/(passwd|shadow|sudoers|cron|hosts)|crontab|LaunchAgents|LaunchDaemons|systemd|\.ssh\b)'
+          - focus-metavariable: $DATA
+      # (b) the PATH itself is tool-controlled (arbitrary file write / traversal)
+      - patterns:
+          - pattern-either:
+              - pattern: writeFileSync($PATH, ...)
+              - pattern: writeFile($PATH, ...)
+              - pattern: appendFileSync($PATH, ...)
+              - pattern: appendFile($PATH, ...)
+              - pattern: $FS.writeFileSync($PATH, ...)
+              - pattern: $FS.writeFile($PATH, ...)
+              - pattern: $FS.appendFileSync($PATH, ...)
+              - pattern: $FS.appendFile($PATH, ...)
+              - pattern: $FS.outputFile($PATH, ...)
+              - pattern: $FS.createWriteStream($PATH, ...)
+              - pattern: createWriteStream($PATH, ...)
+              - pattern: Bun.write($PATH, ...)
+              - pattern: Deno.writeTextFile($PATH, ...)
+          - focus-metavariable: $PATH
+
+  # ---------------------------------------------------------------------------
+  # 8. Confusable / homoglyph tool names (shadowing a trusted tool)
+  # ---------------------------------------------------------------------------
+  - id: immune-confusable-tool-name
+    message: >-
+      Tool name `$NAME` contains non-ASCII or escaped/invisible characters. Look-alike names
+      (Cyrillic `о` for Latin `o`, zero-width joiners) let a malicious server shadow a trusted tool:
+      the model picks the impostor, the human reviewer sees nothing wrong. Tool names should be
+      ASCII `[a-z0-9_-]`. Immune's homoglyph detector quarantines such tools at `list_tools` time.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      category: security
+      subcategory: [vuln]
+      technology: [mcp, typescript, javascript]
+      confidence: HIGH
+      likelihood: LOW
+      impact: HIGH
+      cwe:
+        - "CWE-1007: Insufficient Visual Distinction of Homoglyphs Presented to User"
+      owasp-llm:
+        - "LLM03:2025 Supply Chain"
+        - "LLM01:2025 Prompt Injection"
+      references:
+        - https://cwe.mitre.org/data/definitions/1007.html
+        - https://www.unicode.org/reports/tr39/
+        - https://modelcontextprotocol.io/specification/2025-06-18/basic/security_best_practices
+      immune:
+        family: homoglyph_spoof
+        detector: homoglyph
+        gate-rule: "match.phase: tool_def (builtin homoglyph rule)"
+        remediation: "ASCII-only tool names; proxy normalises NFKC and quarantines confusables"
+    patterns:
+      - pattern-either:
+          - pattern: $S.tool($NAME, ...)
+          - pattern: $S.registerTool($NAME, ...)
+          - pattern: |
+              { ..., name: $NAME, ..., description: $DESC, ... }
+      - metavariable-regex:
+          metavariable: $NAME
+          regex: '(?s).*([^\x00-\x7F]|\\u[0-9a-fA-F]{4}|\\u\{[0-9a-fA-F]+\}|\\x[0-9a-fA-F]{2})'

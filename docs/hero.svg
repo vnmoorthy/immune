@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640" role="img" aria-labelledby="t d">
+  <title id="t">IMMUNE — every attack becomes an antibody</title>
+  <desc id="d">MCP firewall · replay-proven countermeasures · signed receipts · the next agent is immune</desc>
+  <style>
+    .t { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; fill: #e8e9eb; }
+    .m { font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; fill: #e8e9eb; }
+    .title { font-size: 150px; font-weight: 700; letter-spacing: 0.06em; }
+    .tag { font-size: 40px; font-weight: 300; letter-spacing: 0.005em; }
+    .lbl { font-size: 12.5px; letter-spacing: 0.22em; fill: rgba(232,233,235,0.62); }
+    .sub { font-size: 15px; letter-spacing: 0.2em; fill: rgba(232,233,235,0.8); }
+    .steps { font-size: 12.5px; letter-spacing: 0.08em; fill: rgba(232,233,235,0.5); }
+    .cap { font-size: 12px; letter-spacing: 0.14em; fill: rgba(232,233,235,0.55); }
+    .hair { fill: none; stroke: rgba(255,255,255,0.25); stroke-width: 1; }
+    .hair2 { fill: none; stroke: rgba(255,255,255,0.55); stroke-width: 1.25; }
+    .ab { fill: none; stroke: #e8e9eb; stroke-width: 2.25; stroke-linecap: square; }
+  </style>
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="rgba(255,255,255,0.045)" stroke-width="1"/>
+    </pattern>
+  </defs>
+
+  <rect width="1280" height="640" fill="#0a0b0d"/>
+  <rect width="1280" height="640" fill="url(#grid)"/>
+  <rect x="24.5" y="24.5" width="1231" height="591" class="hair"/>
+
+  <!-- header strip -->
+  <text x="56" y="68" class="m lbl">IMMUNE · AGENT SECURITY LOOP · V0.1</text>
+  <text x="1224" y="68" class="m lbl" text-anchor="end">CLICKHOUSE · SEMGREP · GUILD · SENSO · AKASHML</text>
+  <line x1="56" y1="88" x2="1224" y2="88" class="hair"/>
+
+  <!-- wordmark -->
+  <text x="52" y="292" class="t title">IMMUNE</text>
+  <line x1="56" y1="322" x2="760" y2="322" class="hair"/>
+  <text x="56" y="376" class="t tag">every attack becomes an antibody</text>
+
+  <text x="56" y="436" class="m sub">MCP FIREWALL · REPLAY-PROVEN COUNTERMEASURES</text>
+  <text x="56" y="464" class="m sub">SIGNED RECEIPTS · THE NEXT AGENT IS IMMUNE</text>
+
+  <!-- the seven-step loop, as a ticker -->
+  <line x1="56" y1="540" x2="760" y2="540" class="hair"/>
+  <text x="56" y="568" class="m steps">01 ANTIGEN → 02 ANTIBODY → 03 PROOF → 04 SEMGREP → 05 RECEIPT → 06 RULING → 07 IMMUNITY</text>
+
+  <!-- shield + antibody motif -->
+  <g transform="translate(0 0)">
+    <!-- outer shield (square-cornered) -->
+    <path d="M882 128 H1174 V336 L1028 472 L882 336 Z" class="hair2"/>
+    <!-- inner shield -->
+    <path d="M902 148 H1154 V328 L1028 446 L902 328 Z" class="hair"/>
+    <!-- antigen (red), being bound -->
+    <rect x="1020" y="178" width="16" height="16" fill="#e5484d"/>
+    <text x="1046" y="191" class="m cap">ANTIGEN</text>
+    <!-- antibody: Y shape, square caps -->
+    <path d="M1028 418 V318" class="ab"/>
+    <path d="M1028 318 L958 236" class="ab"/>
+    <path d="M1028 318 L1098 236" class="ab"/>
+    <!-- binding tips: forked, emerald -->
+    <path d="M958 236 L940 212" class="ab" style="stroke:#3ecf8e"/>
+    <path d="M958 236 L980 214" class="ab" style="stroke:#3ecf8e"/>
+    <path d="M1098 236 L1076 214" class="ab" style="stroke:#3ecf8e"/>
+    <path d="M1098 236 L1116 212" class="ab" style="stroke:#3ecf8e"/>
+    <!-- bound antigen fragment on the left tip -->
+    <rect x="932" y="196" width="10" height="10" fill="#e5484d"/>
+    <text x="1046" y="372" class="m cap">ANTIBODY</text>
+    <!-- stem base ticks -->
+    <path d="M1012 418 H1044" class="hair2"/>
+  </g>
+  <!-- status lines under the shield -->
+  <text x="1028" y="500" class="m cap" text-anchor="middle" style="fill:#3ecf8e">BLOCKED · PROVEN · CITED</text>
+  <text x="1028" y="524" class="m cap" text-anchor="middle" style="letter-spacing:0.12em">NEXT SESSION · SAME ATTACK · DENIED WITH CITATION</text>
+
+  <!-- footer -->
+  <line x1="56" y1="588" x2="1224" y2="588" class="hair"/>
+  <text x="56" y="606" class="m lbl">ZERO-KEY · RUNS END TO END WITH NO API KEYS</text>
+  <text x="1224" y="606" class="m lbl" text-anchor="end">BREACH → ANTIBODY → RECEIPT · MEASURED AS TIME-TO-IMMUNITY</text>
+</svg>

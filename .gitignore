@@ -1,0 +1,11 @@
+node_modules
+.next
+dist
+*.log
+.env
+.env.local
+.immune/
+.tools/
+coverage
+.DS_Store
+*.tsbuildinfo

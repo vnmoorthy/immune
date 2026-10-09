@@ -1,0 +1,15 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"],
+    "lib": ["ES2022", "DOM"],
+    "baseUrl": ".",
+    "paths": {
+      "@guildai/agents-sdk": ["./shims/guildai-agents-sdk.ts"],
+      "@guildai-services/guildai~experimental-fetch": ["./shims/guildai-experimental-fetch.ts"],
+      "zod": ["./shims/zod.ts"]
+    }
+  },
+  "include": ["agent.ts", "local-run.ts", "shims/*.ts"]
+}

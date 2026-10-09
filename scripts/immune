@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Launcher for the Immune MCP proxy CLI (apps/proxy). Usage: scripts/immune <command> [...]
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TSX="$ROOT/node_modules/.bin/tsx"
+if [ ! -x "$TSX" ]; then
+  echo "[immune] tsx not found at $TSX — run 'pnpm install' at the repo root first" >&2
+  exit 1
+fi
+exec "$TSX" "$ROOT/apps/proxy/src/cli.ts" "$@"

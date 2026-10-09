@@ -1,0 +1,16 @@
+{
+  "name": "immune-remediator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Immune remediator — Guild agent: breach Trace in, replay-proven antibody + signed receipt + ruling out.",
+  "type": "module",
+  "main": "agent.ts",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "local": "tsx --tsconfig tsconfig.json local-run.ts"
+  },
+  "dependencies": {
+    "@guildai/agents-sdk": "^0.6.0",
+    "@guildai-services/guildai~experimental-fetch": "latest"
+  }
+}
