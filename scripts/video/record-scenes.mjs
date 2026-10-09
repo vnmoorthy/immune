@@ -67,9 +67,17 @@ const cuts = await scene('loop', async ({ page, warm, mark }) => {
   await warm('/'); await sleep(2000);
   mark('t3');
   await mutateBtn(page).nth(2).click();
-  await until(page, /BREACH/, 30000); await sleep(2500);
+  await until(page, /BREACH\s*[×x]/i, 30000); await sleep(2500);
   mark('t4');
-  await until(page, /Immunity verified/i, 120000); await sleep(4500);
+  // wait for the remediation to actually reach IMMUNE (the theatre lists step labels even while pending, so ask the API)
+  const t0 = Date.now();
+  while (Date.now() - t0 < 180000) {
+    const r = await (await fetch(base + '/api/remediations')).json();
+    const list = Array.isArray(r) ? r : r.remediations ?? [];
+    if (list.some((x) => x.status === 'immune')) break;
+    await sleep(500);
+  }
+  await sleep(5000);
   mark('t5');
   const replay = page.getByRole('button', { name: /replay\s*#/i });
   if (await replay.count()) { await replay.first().click(); await sleep(3500); }

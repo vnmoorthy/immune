@@ -72,12 +72,12 @@ def main():
     # section -> (video file, start, end) ; None video = hero/presenter full frame
     sections = {
         1: None,
-        2: (os.path.join(a.scenes, "s2-gate.webm"), 0.0, None),
+        2: (os.path.join(a.scenes, "s2-gate.webm"), 2.5, None),  # skip the page warm-up
         3: (loop, cuts["t3"], cuts["t4"]),
         4: (loop, cuts["t4"], cuts["t5"]),
         5: (loop, cuts["t5"], cuts["end"]),
         6: (os.path.join(a.scenes, "s6-proof.webm"), 0.0, None),
-        7: (os.path.join(a.scenes, "s7-data.webm"), 0.0, None),
+        7: (os.path.join(a.scenes, "s7-data.webm"), 4.0, None),  # skip the page warm-up
         8: None,
     }
 
@@ -118,12 +118,14 @@ def main():
         else:
             vfile, s, e = src
             vin = ["-ss", f"{s:.3f}"] + (["-t", f"{(e - s):.3f}"] if e else []) + ["-i", vfile]
-            vfilter = f"[0:v]{vf_common},tpad=stop_mode=clone:stop_duration=60[v]"  # freeze last frame if footage is shorter than narration
+            # the recorder leaves a ~24 px grey band under the page canvas: crop it, then fit exactly
+            footage = f"crop=iw:ih-24:0:0,scale={W}:{H},fps={FPS},format=yuv420p"
+            vfilter = f"[0:v]{footage},tpad=stop_mode=clone:stop_duration=60[v]"  # freeze last frame if footage is shorter than narration
             if a.presenter:
                 ps, pe = pres_segments[i - 1]
                 vin += ["-ss", f"{ps:.3f}", "-t", f"{target:.3f}", "-i", a.presenter]
                 vfilter = (
-                    f"[0:v]{vf_common},tpad=stop_mode=clone:stop_duration=60[bg];"
+                    f"[0:v]{footage},tpad=stop_mode=clone:stop_duration=60[bg];"
                     f"[2:v]scale=400:-2,tpad=stop_mode=clone:stop_duration=60[pip];"
                     f"[bg][pip]overlay=W-w-24:H-h-24:shortest=0[v]"
                 )

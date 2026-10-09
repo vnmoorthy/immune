@@ -81,7 +81,7 @@ Then, in the command center:
 5. **Mutate** any *other* family — blocked by the same antibody. One breach immunized the class.
 6. Open **Receipts**, flip **Tamper**, click **Verify**. The signature breaks.
 
-A recorded walkthrough of the loop (launch → mutate → breach → immune → replay bounces → other families immune → receipts tamper): [docs/demo/immune-demo.mp4](docs/demo/immune-demo.mp4).
+Narrated product video: [docs/demo/immune-product-video.mp4](docs/demo/immune-product-video.mp4). Raw walkthrough of the loop (launch → mutate → breach → immune → replay bounces → other families immune → receipts tamper): [docs/demo/immune-demo.mp4](docs/demo/immune-demo.mp4).
 
 ```bash
 pnpm e2e           # 77 HTTP checks against the running command center: every family breaches, remediates, and bounces
